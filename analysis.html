@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emotion Sense - 분석모드</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Roboto', sans-serif;
+            background: #0f172a;
+            color: white;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            flex: 0 0 60px;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            background: rgba(0, 0, 0, 0.6);
+        }
+        header h1 {
+            font-size: 24px;
+        }
+        main {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-evenly;
+            align-items: center;
+            padding: 20px;
+        }
+        .camera-view {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        .camera-view video {
+            width: 90%;
+            max-width: 600px;
+            border-radius: 12px;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+        }
+        footer {
+            flex: 0 0 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.6);
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Emotion Sense - 분석모드</h1>
+    </header>
+
+    <main>
+        <div class="camera-view">
+            <h2>얼굴 분석 카메라</h2>
+            <video id="faceCam" autoplay muted playsinline></video>
+        </div>
+        <div class="camera-view">
+            <h2>몸동작 분석 카메라</h2>
+            <video id="poseCam" autoplay muted playsinline></video>
+        </div>
+    </main>
+
+    <footer>
+        실시간 분석 중...
+    </footer>
+
+    <script>
+        let faceCam = document.getElementById('faceCam');
+        let poseCam = document.getElementById('poseCam');
+
+        navigator.mediaDevices.enumerateDevices()
+            .then(devices => {
+                let videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+                if (videoDevices.length >= 2) {
+                    const constraints1 = { video: { deviceId: { exact: videoDevices[0].deviceId } }, audio: false };
+                    const constraints2 = { video: { deviceId: { exact: videoDevices[1].deviceId } }, audio: false };
+
+                    navigator.mediaDevices.getUserMedia(constraints1)
+                        .then(stream => {
+                            faceCam.srcObject = stream;
+                            captureFaceImage(stream);
+                        });
+
+                    navigator.mediaDevices.getUserMedia(constraints2)
+                        .then(stream => {
+                            poseCam.srcObject = stream;
+                            sendPoseFrames(stream);
+                        });
+                } else {
+                    alert('웹캠 2개가 필요합니다!');
+                }
+            })
+            .catch(err => console.error(err));
+
+        function captureFaceImage(stream) {
+            const videoTrack = stream.getVideoTracks()[0];
+            const imageCapture = new ImageCapture(videoTrack);
+
+            setInterval(() => {
+                imageCapture.takePhoto()
+                    .then(blob => blobToBase64(blob))
+                    .then(base64Image => {
+                        fetch('/save_face_image', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ image: base64Image })
+                        });
+                    })
+                    .catch(err => console.error('얼굴 캡쳐 실패:', err));
+            }, 5000); // 5초마다 캡쳐
+        }
+
+        function sendPoseFrames(stream) {
+            const videoTrack = stream.getVideoTracks()[0];
+            const imageCapture = new ImageCapture(videoTrack);
+
+            setInterval(() => {
+                imageCapture.grabFrame()
+                    .then(bitmap => bitmapToBase64(bitmap))
+                    .then(base64Image => {
+                        fetch('/analyze_pose', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ image: base64Image })
+                        });
+                    })
+                    .catch(err => console.error('몸동작 분석 실패:', err));
+            }, 1000); // 1초마다 전송
+        }
+
+        function blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        function bitmapToBase64(bitmap) {
+            return new Promise((resolve) => {
+                const canvas = document.createElement('canvas');
+                canvas.width = bitmap.width;
+                canvas.height = bitmap.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(bitmap, 0, 0);
+                resolve(canvas.toDataURL('image/jpeg'));
+            });
+        }
+    </script>
+
+</body>
+</html>
